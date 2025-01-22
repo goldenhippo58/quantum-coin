@@ -1,6 +1,7 @@
 mod blockchain;
 mod rest;
 mod wallet;
+mod consensus;
 mod network {
     pub mod p2p; // Import the p2p module from the network directory
 }

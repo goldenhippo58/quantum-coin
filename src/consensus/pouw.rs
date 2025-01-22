@@ -4,15 +4,15 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
     pub id: String,
-    pub description: String, // Task description (e.g., "Train an AI model").
-    pub data: Vec<u8>,       // Input data for the task.
-    pub reward: u64,         // Reward for completing the task.
-    pub is_complete: bool,   // Task completion status.
+    pub description: String,
+    pub data: Vec<u8>,
+    pub reward: u64,
+    pub is_complete: bool,
 }
 
 #[derive(Debug, Clone)]
 pub struct TaskQueue {
-    pub tasks: HashMap<String, Task>, // Task ID -> Task details.
+    pub tasks: HashMap<String, Task>,
 }
 
 impl TaskQueue {
@@ -42,6 +42,6 @@ impl TaskQueue {
     }
 
     pub fn get_pending_tasks(&self) -> Vec<&Task> {
-        self.tasks.values().filter(|t| !t.is_complete).collect()
+        self.tasks.values().filter(|task| !task.is_complete).collect()
     }
 }

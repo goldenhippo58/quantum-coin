@@ -56,28 +56,41 @@ impl Blockchain {
         block.hash.starts_with("0")
     }
 
-    // Staking functions
+    // Get the latest block
+    pub fn latest_block(&self) -> &Block {
+        self.chain.last().expect("Blockchain is empty")
+    }
+
+    // Staking Functions
+
+    // Stake tokens for rewards
     pub fn stake(&mut self, wallet: String, amount: u64) {
         self.staking_state.stake(wallet, amount);
     }
 
+    // Unstake tokens
     pub fn unstake(&mut self, wallet: String, amount: u64) -> bool {
         self.staking_state.unstake(wallet, amount)
     }
 
+    // Get staking rewards for a wallet
     pub fn get_rewards(&self, wallet: &String) -> u64 {
         self.staking_state.get_rewards(wallet)
     }
 
-    // PoUW Task Management Functions
+    // Task Management Functions (PoUW)
+
+    // Add a new task to the task queue
     pub fn add_task(&mut self, id: String, description: String, data: Vec<u8>, reward: u64) {
         self.task_queue.add_task(id, description, data, reward);
     }
 
+    // Mark a task as complete
     pub fn complete_task(&mut self, id: &str) -> Option<Task> {
         self.task_queue.complete_task(id)
     }
 
+    // Retrieve all pending tasks
     pub fn get_pending_tasks(&self) -> Vec<&Task> {
         self.task_queue.get_pending_tasks()
     }
