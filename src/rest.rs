@@ -93,19 +93,17 @@ pub async fn start_rest_api(blockchain: SharedBlockchain) {
         });
 
     // Check all wallets
-    let wallets_route = warp::path("wallets")
-        .and(warp::get())
-        .map(|| {
-            let db = DB::open_default("./wallets").expect("Failed to open wallet database");
-            let wallets: Vec<String> = db
-                .iterator(rocksdb::IteratorMode::Start)
-                .map(|item| match item {
-                    Ok((key, _)) => String::from_utf8(key.to_vec()).unwrap(),
-                    Err(_) => "Invalid key".to_string(),
-                })
-                .collect();
-            warp::reply::json(&serde_json::json!({ "wallets": wallets }))
-        });
+    let wallets_route = warp::path("wallets").and(warp::get()).map(|| {
+        let db = DB::open_default("./wallets").expect("Failed to open wallet database");
+        let wallets: Vec<String> = db
+            .iterator(rocksdb::IteratorMode::Start)
+            .map(|item| match item {
+                Ok((key, _)) => String::from_utf8(key.to_vec()).unwrap(),
+                Err(_) => "Invalid key".to_string(),
+            })
+            .collect();
+        warp::reply::json(&serde_json::json!({ "wallets": wallets }))
+    });
 
     // Check all blocks
     let blocks_route = warp::path("blocks")
@@ -125,7 +123,9 @@ pub async fn start_rest_api(blockchain: SharedBlockchain) {
             let wallet = query["wallet"].as_str().unwrap_or_default().to_string();
             let blockchain = blockchain.lock().unwrap();
 
-            let txs: Vec<_> = blockchain.chain.iter()
+            let txs: Vec<_> = blockchain
+                .chain
+                .iter()
                 .flat_map(|block| block.transactions.iter())
                 .filter(|tx| tx.sender == wallet || tx.receiver == wallet)
                 .cloned()
@@ -143,7 +143,9 @@ pub async fn start_rest_api(blockchain: SharedBlockchain) {
             let wallet = query["wallet"].as_str().unwrap_or_default().to_string();
             let blockchain = blockchain.lock().unwrap();
 
-            let spendable = blockchain.chain.iter()
+            let spendable = blockchain
+                .chain
+                .iter()
                 .flat_map(|block| block.transactions.iter())
                 .fold(0, |balance, tx| {
                     if tx.sender == wallet {
@@ -155,7 +157,12 @@ pub async fn start_rest_api(blockchain: SharedBlockchain) {
                     }
                 });
 
-            let staked = blockchain.staking_state.staked_balances.get(&wallet).cloned().unwrap_or(0);
+            let staked = blockchain
+                .staking_state
+                .staked_balances
+                .get(&wallet)
+                .cloned()
+                .unwrap_or(0);
 
             warp::reply::json(&serde_json::json!({
                 "wallet": wallet,
@@ -173,7 +180,9 @@ pub async fn start_rest_api(blockchain: SharedBlockchain) {
         .map(|body: serde_json::Value, blockchain: SharedBlockchain| {
             let id = body["id"].as_str().unwrap_or_default().to_string();
             let description = body["description"].as_str().unwrap_or_default().to_string();
-            let data = BASE64_ENGINE.decode(body["data"].as_str().unwrap_or_default()).unwrap_or_default();
+            let data = BASE64_ENGINE
+                .decode(body["data"].as_str().unwrap_or_default())
+                .unwrap_or_default();
             let reward = body["reward"].as_u64().unwrap_or(0);
 
             let mut blockchain = blockchain.lock().unwrap();
@@ -207,13 +216,16 @@ pub async fn start_rest_api(blockchain: SharedBlockchain) {
         .and(with_blockchain(blockchain.clone()))
         .map(|blockchain: SharedBlockchain| {
             let blockchain = blockchain.lock().unwrap();
-            let tasks: Vec<_> = blockchain.get_pending_tasks()
+            let tasks: Vec<_> = blockchain
+                .get_pending_tasks()
                 .into_iter()
-                .map(|t| serde_json::json!({
-                    "id": t.id,
-                    "description": t.description,
-                    "reward": t.reward
-                }))
+                .map(|t| {
+                    serde_json::json!({
+                        "id": t.id,
+                        "description": t.description,
+                        "reward": t.reward
+                    })
+                })
                 .collect();
 
             warp::reply::json(&tasks)
@@ -230,16 +242,17 @@ pub async fn start_rest_api(blockchain: SharedBlockchain) {
                 .tasks
                 .values()
                 .filter(|task| task.is_complete)
-                .map(|task| serde_json::json!({
-                    "id": task.id,
-                    "description": task.description,
-                    "reward": task.reward,
-                    "is_complete": task.is_complete
-                }))
+                .map(|task| {
+                    serde_json::json!({
+                        "id": task.id,
+                        "description": task.description,
+                        "reward": task.reward,
+                        "is_complete": task.is_complete
+                    })
+                })
                 .collect();
             warp::reply::json(&tasks)
         });
-
 
     // Run the server
     warp::serve(
@@ -254,7 +267,8 @@ pub async fn start_rest_api(blockchain: SharedBlockchain) {
             .or(wallet_balance)
             .or(add_task)
             .or(complete_task)
-            .or(get_pending_tasks),
+            .or(get_pending_tasks)
+            .or(get_completed_tasks),
     )
     .run(([0, 0, 0, 0], 8080))
     .await;
