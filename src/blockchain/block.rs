@@ -1,6 +1,7 @@
+use serde::{Deserialize, Serialize};
 use sha3::{Digest, Sha3_256};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Transaction {
     pub sender: String,
     pub receiver: String,
@@ -8,7 +9,7 @@ pub struct Transaction {
     pub signature: Vec<u8>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Block {
     pub index: u64,
     pub timestamp: u128,
@@ -33,6 +34,16 @@ impl Block {
             previous_hash,
             hash: format!("{:x}", hash),
             transactions,
+        }
+    }
+
+    pub fn genesis() -> Self {
+        Block {
+            index: 0,
+            timestamp: 0,
+            previous_hash: "0".to_string(),
+            hash: "genesis".to_string(),
+            transactions: vec![],
         }
     }
 }

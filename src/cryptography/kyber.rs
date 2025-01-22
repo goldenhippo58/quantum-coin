@@ -1,14 +1,14 @@
+use pqcrypto_kyber::kyber512;
+
 pub fn generate_keypair() -> (Vec<u8>, Vec<u8>) {
-    // Placeholder: Implement Kyber key generation
-    (vec![0u8; 32], vec![0u8; 32])
+    let (public, private) = kyber512::keypair();
+    (public.to_vec(), private.to_vec())
 }
 
 pub fn encrypt(message: &[u8], public_key: &[u8]) -> Vec<u8> {
-    // Placeholder: Implement Kyber encryption
-    message.to_vec()
+    kyber512::enc(message, public_key)
 }
 
 pub fn decrypt(ciphertext: &[u8], private_key: &[u8]) -> Vec<u8> {
-    // Placeholder: Implement Kyber decryption
-    ciphertext.to_vec()
+    kyber512::dec(ciphertext, private_key)
 }

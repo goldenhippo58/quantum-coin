@@ -1,20 +1,27 @@
 mod blockchain;
+mod rest;
+mod wallet;
+mod network {
+    pub mod p2p; // Import the p2p module from the network directory
+}
 
-use blockchain::block::Transaction;
-use blockchain::chain::Blockchain;
+use std::sync::{Arc, Mutex};
+use tokio::task;
 
-fn main() {
-    let mut blockchain = Blockchain::new();
+#[tokio::main]
+async fn main() {
+    let blockchain = Arc::new(Mutex::new(blockchain::chain::Blockchain::new(
+        "./blockchain_data",
+    )));
 
-    let tx1 = Transaction {
-        sender: "Alice".to_string(),
-        receiver: "Bob".to_string(),
-        amount: 100,
-        signature: vec![],
-    };
+    // Start the REST API in a separate task
+    let blockchain_api = blockchain.clone();
+    task::spawn(async move {
+        println!("Starting REST API on http://localhost:8080...");
+        rest::start_rest_api(blockchain_api).await;
+    });
 
-    blockchain.add_block(vec![tx1]);
-
-    println!("Blockchain: {:?}", blockchain);
-    println!("Is valid: {}", blockchain.validate_chain());
+    // Start the P2P network node
+    println!("Starting P2P Node on port 8081...");
+    network::p2p::start_node(8081).await;
 }
