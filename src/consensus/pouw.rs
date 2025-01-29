@@ -8,6 +8,8 @@ pub struct Task {
     pub data: Vec<u8>,
     pub reward: u64,
     pub is_complete: bool,
+    pub sphincs_public_key: Vec<u8>,
+    pub signature: Vec<u8>,
 }
 
 #[derive(Debug, Clone)]
@@ -22,13 +24,23 @@ impl TaskQueue {
         }
     }
 
-    pub fn add_task(&mut self, id: String, description: String, data: Vec<u8>, reward: u64) {
+    pub fn add_task(
+        &mut self,
+        id: String,
+        description: String,
+        data: Vec<u8>,
+        reward: u64,
+        sphincs_public_key: Vec<u8>, // Added parameter
+        signature: Vec<u8>,          // Added parameter
+    ) {
         let task = Task {
-            id,
+            id: id.clone(),
             description,
             data,
             reward,
             is_complete: false,
+            sphincs_public_key,
+            signature,
         };
         self.tasks.insert(task.id.clone(), task);
     }
@@ -42,6 +54,13 @@ impl TaskQueue {
     }
 
     pub fn get_pending_tasks(&self) -> Vec<&Task> {
-        self.tasks.values().filter(|task| !task.is_complete).collect()
+        self.tasks
+            .values()
+            .filter(|task| !task.is_complete)
+            .collect()
+    }
+
+    pub fn get_task(&self, id: &str) -> Option<&Task> {
+        self.tasks.get(id)
     }
 }

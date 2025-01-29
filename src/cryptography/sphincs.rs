@@ -1,9 +1,27 @@
-pub fn sign(message: &[u8], private_key: &[u8]) -> Vec<u8> {
-    // Placeholder: Implement SPHINCS+ signing
-    vec![0u8; 64]
-}
+use pqcrypto_sphincsplus::sphincssha2128fsimple::{
+    detached_sign, keypair, verify_detached_signature, DetachedSignature, PublicKey, SecretKey,
+};
+use pqcrypto_traits::sign::DetachedSignature as _;
+use std::error::Error;
 
-pub fn verify(message: &[u8], signature: &[u8], public_key: &[u8]) -> bool {
-    // Placeholder: Implement SPHINCS+ verification
-    true
+pub struct Sphincs;
+
+impl Sphincs {
+    pub fn generate_keypair() -> Result<(PublicKey, SecretKey), Box<dyn Error>> {
+        let (public_key, secret_key) = keypair();
+        Ok((public_key, secret_key))
+    }
+
+    pub fn sign(message: &[u8], secret_key: &SecretKey) -> Result<Vec<u8>, Box<dyn Error>> {
+        let signature = detached_sign(message, secret_key);
+        Ok(DetachedSignature::as_bytes(&signature).to_vec())
+    }
+
+    pub fn verify(message: &[u8], signature_bytes: &[u8], public_key: &PublicKey) -> bool {
+        if let Ok(ds) = DetachedSignature::from_bytes(signature_bytes) {
+            verify_detached_signature(&ds, message, public_key).is_ok()
+        } else {
+            false
+        }
+    }
 }

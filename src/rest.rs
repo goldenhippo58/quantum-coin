@@ -1,8 +1,19 @@
 use crate::blockchain::chain::Blockchain;
+use crate::cryptography::kyber::KyberEncryption;
+use crate::cryptography::sphincs::Sphincs;
 use crate::wallet;
-use base64::engine::general_purpose::STANDARD as BASE64_ENGINE; // Base64 Engine
-use base64::Engine;
+use hex;
+use pqcrypto_kyber::kyber512::{Ciphertext, SecretKey};
+use pqcrypto_sphincsplus::sphincssha2128fsimple::{
+    self, verify_detached_signature, PublicKey as SphincsPublicKey,
+};
+
+use pqcrypto_traits::{
+    kem::{Ciphertext as _, PublicKey as _, SecretKey as _, SharedSecret as _},
+    sign::{DetachedSignature as _, PublicKey as _},
+};
 use rocksdb::DB;
+use serde_json;
 use std::sync::{Arc, Mutex};
 use warp::Filter;
 
@@ -178,17 +189,58 @@ pub async fn start_rest_api(blockchain: SharedBlockchain) {
         .and(warp::body::json())
         .and(with_blockchain(blockchain.clone()))
         .map(|body: serde_json::Value, blockchain: SharedBlockchain| {
+            println!("Received request to add task: {:?}", body);
+
+            // Extract task data
             let id = body["id"].as_str().unwrap_or_default().to_string();
             let description = body["description"].as_str().unwrap_or_default().to_string();
-            let data = BASE64_ENGINE
-                .decode(body["data"].as_str().unwrap_or_default())
-                .unwrap_or_default();
+            let _data = body["data"].as_str().unwrap_or_default().as_bytes(); // Prefix with `_` to suppress warning
             let reward = body["reward"].as_u64().unwrap_or(0);
 
-            let mut blockchain = blockchain.lock().unwrap();
-            blockchain.add_task(id, description, data, reward);
+            // Kyber: Generate key pair and encrypt data
+            let (public_key, secret_key) = KyberEncryption::generate_keypair();
+            let (_shared_secret, ciphertext) =
+                KyberEncryption::encrypt(&public_key).expect("Encryption failed");
 
-            warp::reply::json(&serde_json::json!({ "message": "Task added successfully" }))
+            // SPHINCS+: Generate key pair and sign task metadata
+            let (sphincs_public_key, sphincs_secret_key) =
+                Sphincs::generate_keypair().expect("Failed to generate SPHINCS+ keypair");
+            let task_metadata = format!("{}:{}", id, description);
+            let signature = Sphincs::sign(task_metadata.as_bytes(), &sphincs_secret_key)
+                .expect("Failed to sign metadata");
+
+            // Convert keys and data to hex for storage
+            let secret_key_bytes = SecretKey::as_bytes(&secret_key);
+            let secret_key_hex = hex::encode(secret_key_bytes);
+
+            let ciphertext_bytes = Ciphertext::as_bytes(&ciphertext);
+            let encrypted_data_hex = hex::encode(ciphertext_bytes);
+
+            let sphincs_public_key_bytes = SphincsPublicKey::as_bytes(&sphincs_public_key);
+            let sphincs_public_key_hex = hex::encode(sphincs_public_key_bytes);
+            let sphincs_signature_hex = hex::encode(&signature);
+
+            // Store the task in the blockchain
+            let mut blockchain = blockchain.lock().unwrap();
+            blockchain.add_task(
+                id.clone(),
+                description.clone(),
+                encrypted_data_hex.clone().into_bytes(),
+                reward,
+                sphincs_public_key_bytes.to_vec(),
+                signature.clone(), // Clone here to avoid move errors
+            );
+
+            // Respond with task details
+            warp::reply::json(&serde_json::json!({
+                "message": "Task added successfully",
+                "task_id": id,
+                "public_key": hex::encode(&public_key.as_bytes()),
+                "secret_key": secret_key_hex,
+                "sphincs_public_key": sphincs_public_key_hex,
+                "sphincs_signature": sphincs_signature_hex,
+                "encrypted_data": encrypted_data_hex
+            }))
         });
 
     // Complete Task
@@ -197,13 +249,74 @@ pub async fn start_rest_api(blockchain: SharedBlockchain) {
         .and(warp::body::json())
         .and(with_blockchain(blockchain.clone()))
         .map(|body: serde_json::Value, blockchain: SharedBlockchain| {
-            let id = body["id"].as_str().unwrap_or_default().to_string();
+            println!("Received request to complete task: {:?}", body);
 
+            // Extract task data
+            let id = body["id"].as_str().unwrap_or_default().to_string();
+            let encrypted_result = body["result"].as_str().unwrap_or_default();
+            let secret_key_hex = body["secret_key"].as_str().unwrap_or_default();
+
+            // Decode encrypted result and secret key
+            let ciphertext_bytes = hex::decode(encrypted_result).expect("Invalid ciphertext");
+            let secret_key_bytes = hex::decode(secret_key_hex).expect("Invalid secret key");
+
+            // Convert bytes back to Kyber types using proper methods
+            let ciphertext = KyberEncryption::ciphertext_from_bytes(&ciphertext_bytes)
+                .expect("Invalid ciphertext format");
+            let secret_key = KyberEncryption::secret_key_from_bytes(&secret_key_bytes)
+                .expect("Invalid secret key format");
+
+            // Kyber: Decrypt result
+            let shared_secret =
+                KyberEncryption::decrypt(&ciphertext, &secret_key).expect("Decryption failed");
+
+            // Get task details from blockchain
+            let blockchain_guard = blockchain.lock().unwrap();
+            let task = blockchain_guard
+                .get_task(&id)
+                .expect("Task not found")
+                .clone(); // Clone it before dropping the lock
+            drop(blockchain_guard); // Now it's safe to release the lock
+            let description = task.description.clone();
+
+            // Recreate task metadata for SPHINCS+ signature verification
+            let task_metadata = format!("{}:{}", id, description);
+
+            // Decode SPHINCS+ public key and signature from the task
+            let sphincs_public_key_bytes =
+                hex::decode(&task.sphincs_public_key).expect("Invalid SPHINCS+ public key");
+            let sphincs_signature =
+                hex::decode(&task.signature).expect("Invalid SPHINCS+ signature");
+
+            // Convert bytes to SPHINCS+ types using proper methods
+            let detached_signature =
+                sphincssha2128fsimple::DetachedSignature::from_bytes(&sphincs_signature)
+                    .expect("Invalid signature format");
+            let sphincs_public_key =
+                sphincssha2128fsimple::PublicKey::from_bytes(&sphincs_public_key_bytes)
+                    .expect("Invalid public key format");
+
+            // Verify SPHINCS+ signature using detached signature
+            if !verify_detached_signature(
+                &detached_signature,
+                &task_metadata.as_bytes(),
+                &sphincs_public_key,
+            )
+            .is_ok()
+            {
+                return warp::reply::json(&serde_json::json!({
+                    "error": "Invalid SPHINCS+ signature"
+                }));
+            }
+
+            // Mark task as complete in the blockchain
             let mut blockchain = blockchain.lock().unwrap();
             if let Some(task) = blockchain.complete_task(&id) {
                 warp::reply::json(&serde_json::json!({
                     "message": "Task completed successfully",
-                    "task": task
+                    "task": task,
+                    "decrypted_data": String::from_utf8(shared_secret.as_bytes().to_vec())
+                        .unwrap_or_default()
                 }))
             } else {
                 warp::reply::json(&serde_json::json!({ "error": "Task not found" }))
@@ -231,7 +344,7 @@ pub async fn start_rest_api(blockchain: SharedBlockchain) {
             warp::reply::json(&tasks)
         });
 
-    // Get Compelted Tasks
+    // Get Completed Tasks
     let get_completed_tasks = warp::path!("tasks" / "completed")
         .and(warp::get())
         .and(with_blockchain(blockchain.clone()))
@@ -247,7 +360,9 @@ pub async fn start_rest_api(blockchain: SharedBlockchain) {
                         "id": task.id,
                         "description": task.description,
                         "reward": task.reward,
-                        "is_complete": task.is_complete
+                        "is_complete": task.is_complete,
+                        "sphincs_public_key": hex::encode(&task.sphincs_public_key),
+                        "sphincs_signature": hex::encode(&task.signature)
                     })
                 })
                 .collect();

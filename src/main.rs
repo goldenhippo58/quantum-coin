@@ -5,6 +5,7 @@ mod consensus;
 mod network {
     pub mod p2p; // Import the p2p module from the network directory
 }
+mod cryptography;
 
 use std::sync::{Arc, Mutex};
 use tokio::task;
